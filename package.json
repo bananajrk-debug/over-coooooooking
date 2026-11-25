@@ -1,7 +1,7 @@
 {
-  "name": "destroy-or-avoid",
-  "version": "7.0.0",
-  "description": "Destroy or Avoid - online realtime action social-deduction game (fixed spaceship map + ghost carry + task direction markers edition)",
+  "name": "dotabata-kitchen",
+  "version": "1.0.0",
+  "description": "最大8人オンライン協力料理ゲーム",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
