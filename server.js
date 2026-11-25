@@ -391,6 +391,69 @@ const MAPS = [
       'XXXXXXXXXXXXXXXXXXXXXXXX'] },
 ];
 
+// 人数による広さ（cut: 1〜2人で消す列 / ins: 6〜8人で2列ずつ足す位置）
+const MAP_SIZES = [
+  {cut: [9, 15], ins: [5, 13]},
+  {cut: [7, 14], ins: [7, 14]},
+  {cut: [6, 12], ins: [6, 13]},
+  {cut: [10, 16], ins: [10, 17]},
+  {cut: [7, 10], ins: [5, 13]},
+  {cut: [5, 14], ins: [6, 14]},
+  {cut: [6, 11], ins: [7, 12]},
+  {cut: [5, 10], ins: [6, 11]},
+  {cut: [5, 11], ins: [5, 13]},
+  {cut: [8, 13], ins: [4, 14]},
+  {cut: [4, 16], ins: [5, 13]},
+  {cut: [6, 12], ins: [6, 13]},
+  {cut: [7, 11], ins: [7, 12]},
+  {cut: [6, 16], ins: [7, 14]},
+  {cut: [6, 13], ins: [6, 13]},
+  {cut: [6, 13], ins: [6, 14]},
+  {cut: [7, 13], ins: [6, 14]},
+  {cut: [4, 15], ins: [6, 14]},
+  {cut: [7, 10], ins: [5, 13]},
+  {cut: [7, 16], ins: [10, 14]},
+];
+MAPS.forEach((m, i) => Object.assign(m, MAP_SIZES[i]));
+
+// ------------------------------------------------------------
+//  人数でマップの広さを変える
+//  sl の列範囲を 小(1〜2人):0回 / 中(3〜5人):1回 / 大(6〜8人):2回 くり返す
+// ------------------------------------------------------------
+function sizeLevel(n) { return n <= 2 ? 0 : n <= 5 ? 1 : 2; }
+const COUNTERISH_RAW = (c) => !'.$i~XH_→←↑↓'.includes(c) && !(c >= '0' && c <= '9');
+// 列のあいだに「つなぎ目」の列を作る（台は台、床は床でのばす）
+function seamChar(L, R) {
+  if (L === 'X' && R === 'X') return 'X';
+  if (L === '~' && R === '~') return '~';
+  if (L === '_' && R === '_') return '_';
+  if (L === R && 'iH→←'.includes(L)) return L;
+  if ((L === '▶' || L === '◀') && (R === L || R === 'P')) return L;
+  if ((R === '▶' || R === '◀') && (L === R || L === 'P')) return R;
+  if (COUNTERISH_RAW(L) && COUNTERISH_RAW(R)) return '#';
+  if (L === 'X' || R === 'X') return 'X';
+  if (L === 'i' || R === 'i') return 'i';
+  return '.';
+}
+function buildRows(M, n) {
+  const k = sizeLevel(n);
+  let rows = M.rows.map((r) => [...r]);
+  if (k === 0 && M.cut) rows = rows.map((r) => r.filter((_, c) => !M.cut.includes(c)));
+  if (k === 2 && M.ins) {
+    rows = rows.map((r) => {
+      const out = [];
+      for (let c = 0; c < r.length; c++) {
+        if (M.ins.includes(c)) { const s = seamChar(r[c - 1], r[c]); out.push(s, s); }
+        out.push(r[c]);
+      }
+      return out;
+    });
+  }
+  // 下のほうの「壁だけ・水だけ」の行は1行だけ残してけずる
+  while (rows.length > 2 && rows[rows.length - 1].every((c) => c === 'X' || c === '~') && rows[rows.length - 2].every((c) => c === 'X' || c === '~')) rows.pop();
+  return rows.map((r) => r.join(''));
+}
+
 // ------------------------------------------------------------
 //  マス判定
 // ------------------------------------------------------------
@@ -428,6 +491,7 @@ const newExt = (home) => ({ id: ITEM_ID++, k: 'ext', home });
 function compOf(it) {
   if (it.k !== 'ing') return null;
   const d = ING[it.n];
+  if (it.s === 'cooked') return it.cp;
   if (it.s === 'chopped') return it.n + '_c';
   if (it.s === 'raw' && d.ready) return it.n;
   return null;
@@ -482,7 +546,7 @@ function ev(room, e) { room.events.push(e); }
 
 function startGame(room) {
   const M = MAPS[room.mapIdx];
-  room.tiles = M.rows.map((r) => [...r]);
+  room.tiles = buildRows(M, Object.keys(room.players).length).map((r) => [...r]);
   room.items = {}; room.sink = {}; room.ret = {}; room.fire = {}; room.floor = []; room.proj = [];
   room.resp = []; room.orders = []; room.oid = 0; room.score = 0; room.combo = 0; room.served = 0; room.failed = 0;
   room.tele = {}; room.g = {}; room.gt = 0; room.fireT = 0; room.convT = 0; room.ghostT = 0;
@@ -563,13 +627,11 @@ function tickRespawn(room, dt) {
     r.t -= dt;
     if (r.t > 0) continue;
     if (r.k === 'plate') {
-      const rk = Object.keys(room.ret)[0];
+      const rks = Object.keys(room.ret); const rk = rks[Math.floor(Math.random() * rks.length)];
       if (rk) { if (room.hasSink) room.ret[rk].d++; else room.ret[rk].c++; }
       else {
-        const free = Object.keys(room.items).length; // 返却口がないマップ用
-        const spot = findFreeCounter(room);
+        const spot = findFreeCounter(room); // 返却口がないマップ用
         if (spot) room.items[spot] = newPlate(); else { r.t = 2; continue; }
-        void free;
       }
     } else {
       if (room.items[r.home] || room.fire[r.home]) { r.t = 2; continue; }
@@ -669,6 +731,12 @@ function interact(room, p) {
       const r = room.ret[key];
       if (r.d > 0) { p.h = { id: ITEM_ID++, k: 'dirty', cnt: r.d }; r.d = 0; }
       else if (r.c > 0) { r.c--; p.h = newPlate(); }
+      return;
+    }
+    // 焼けた・煮えた物は手で取り出せる（スープだけは鍋ごと持つ）
+    if (Y && (Y.k === 'pot' || Y.k === 'pan') && Y.done && !Y.bt && (Y.k === 'pan' || ING[Y.ct[0]].boil)) {
+      p.h = { id: ITEM_ID++, k: 'ing', n: Y.ct[0], s: 'cooked', ch: 0, cp: utensilResult(Y) };
+      resetUtensil(Y);
       return;
     }
     if (Y && canHoldItem(ch)) { p.h = Y; delete items[key]; return; }
@@ -974,10 +1042,11 @@ function startServer() {
   const server = http.createServer(app);
   io = new Server(server);
   app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+  app.use('/three', express.static(path.join(__dirname, 'node_modules', 'three', 'build')));
 
   const DEFS = {
     T, ING, COMP, RECIPES, GENRES, ROUND_TIME, MAX_PLAYERS,
-    MAPS: MAPS.map((m) => ({ name: m.name, genre: m.genre, theme: m.theme, desc: m.desc, recipes: m.recipes, stars: m.stars, g: m.g })),
+    MAPS: MAPS.map((m) => ({ name: m.name, genre: m.genre, theme: m.theme, desc: m.desc, recipes: m.recipes, stars: m.stars, g: m.g, rows: m.rows, cut: m.cut, ins: m.ins })),
   };
 
   io.on('connection', (socket) => {
@@ -1056,5 +1125,5 @@ function startServer() {
 if (require.main === module) startServer();
 
 // テスト用
-module.exports = { MAPS, RECIPES, ING, CRATE, COMP, makeRoom, startGame, step, interact, throwItem, targetTile, rooms, T,
+module.exports = { buildRows, sizeLevel, MAPS, RECIPES, ING, CRATE, COMP, makeRoom, startGame, step, interact, throwItem, targetTile, rooms, T,
   _setIO: (x) => { io = x; } };
