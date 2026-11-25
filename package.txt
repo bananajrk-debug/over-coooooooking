@@ -1,0 +1,16 @@
+{
+  "name": "destroy-or-avoid",
+  "version": "7.0.0",
+  "description": "Destroy or Avoid - online realtime action social-deduction game (fixed spaceship map + ghost carry + task direction markers edition)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  }
+}
